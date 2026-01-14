@@ -261,6 +261,93 @@ export default function GamePage({ params }: GamePageProps) {
     [gameId, refetch]
   )
 
+  // Auto-Select First Available Frame on Load
+  useEffect(() => {
+    if (players.length > 0 && !selectedCell) {
+      // Find the first player and frame that isn't complete?
+      // For simplicity, just select the first player, first frame if nothing else.
+      // Or smarter: iterate players, then frames 0-9. Find first frame with missing rolls.
+
+      for (const player of players) {
+        for (let f = 0; f < 10; f++) {
+          const frame = player.frames[f]
+          const rolls = frame?.rolls || []
+          // Check if frame is complete
+          if (f < 9) {
+            // Frames 1-9: Complete if Strike (roll 0 is 10) or 2 rolls exist
+            const isStrike = rolls.some(r => r.rollNumber === 0 && r.pins === 10)
+            if (isStrike) continue;
+            if (rolls.length >= 2) continue;
+
+            // Found incomplete frame
+            // Determine next roll number
+            const nextRoll = rolls.length // 0 or 1
+            setSelectedCell({ playerId: player.id, frameIndex: f, rollNumber: nextRoll })
+            return
+          } else {
+            // Frame 10
+            // Logic: 
+            // X, X, X (3 rolls)
+            // X, 5, / (3 rolls)
+            // 5, /, X (3 rolls)
+            // 5, 4 (2 rolls) -> Complete
+
+            // If 3 rolls, complete
+            if (rolls.length >= 3) continue;
+
+            // If 2 rolls:
+            // If Roll 0 + Roll 1 < 10 (Open), complete.
+            // If Roll 0 + Roll 1 >= 10, Needs 3rd roll.
+            if (rolls.length === 2) {
+              const r0 = rolls.find(r => r.rollNumber === 0)?.pins || 0
+              const r1 = rolls.find(r => r.rollNumber === 1)?.pins || 0
+              if (r0 + r1 < 10 && r0 !== 10) continue; // Open frame, complete
+            }
+
+            const nextRoll = rolls.length
+            setSelectedCell({ playerId: player.id, frameIndex: f, rollNumber: nextRoll })
+            return
+          }
+        }
+      }
+    }
+  }, [players, selectedCell])
+
+  // Keyboard Support
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selectedCell) return
+
+      const maxPins = getMaxPinsForSelection()
+      let pins: number | null = null
+
+      if (e.key >= '0' && e.key <= '9') {
+        pins = parseInt(e.key, 10)
+      } else if (e.key.toLowerCase() === 'x') {
+        pins = 10
+      } else if (e.key === '/') {
+        pins = 10 // Logic handled by maxPins mainly? 
+        // Wait, if I type '/', it usually means "Spare". 
+        // Pins should be calculated as (10 - previous).
+        // MaxPins logic ALREADY returns (10 - previous) for spares situation.
+        // So hitting '/' should basically input `maxPins`.
+        if (maxPins < 10) pins = maxPins
+      } else if (e.key === '-') {
+        pins = 0
+      }
+
+      // If we got a valid pin input
+      if (pins !== null) {
+        if (pins <= maxPins) {
+          handleRollInput(pins)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedCell, getMaxPinsForSelection, handleRollInput])
+
   if (loading) {
     return (
       <main className="min-h-screen bg-neutral-950 flex items-center justify-center">
